@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>万智牌卡片生成器 Pro — V4 无纹样版（浮雕费用符石）</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+  @font-face {
+    font-family: 'Beleren';
+    src: local('Beleren'), local('Beleren Bold'), local('Belerensmallcaps'), local('Beleren Small Caps');
+    font-weight: normal;
+  }
+  :root {
+    --panel-bg: #1e1f24; --panel-bg2: #26282f; --accent: #c9a24b;
+    --text: #e8e6e1; --muted: #9a9ba3; --border: #35373f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "PingFang SC","Microsoft YaHei",sans-serif; background: #0e0f12; color: var(--text); display: flex; min-height: 100vh; }
+
+  /* -------- 左侧控制面板 -------- */
+  #panel { width: 400px; flex-shrink: 0; background: var(--panel-bg); padding: 20px; overflow-y: auto; height: 100vh; border-right: 1px solid var(--border); }
+  #panel h1 { font-size: 18px; margin: 0 0 16px; color: var(--accent); }
+  .group { background: var(--panel-bg2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+  .group h2 { font-size: 13px; margin: 0 0 10px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
+  label { display: block; font-size: 12px; margin-top: 8px; margin-bottom: 4px; color: var(--muted); }
+  input[type=text], input[type=number], textarea, select {
+    width: 100%; background: #16171b; border: 1px solid var(--border); color: var(--text);
+    padding: 6px 8px; border-radius: 5px; font-size: 13px; font-family: inherit; resize: vertical;
+  }
+  textarea { min-height: 70px; line-height: 1.4; }
+  input[type=color] { width: 44px; height: 28px; padding: 0; border: none; background: none; cursor: pointer; vertical-align: middle; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .row { display: flex; gap: 8px; }
+  .row > div { flex: 1; }
+  .sizeRow { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .sizeRow span:first-child { font-size: 12px; color: var(--muted); width: 78px; flex-shrink: 0; }
+  .sizeRow .val { width: 32px; font-size: 11px; color: var(--accent); text-align: right; flex-shrink: 0; }
+  .colorRow { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .colorRow span { font-size: 12px; color: var(--muted); flex: 1; }
+  .swatches { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .swatch { width: 26px; height: 26px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
+  .swatch.active { border-color: #fff; }
+  #uploadBtn, #exportBtn, #regenBtn {
+    width: 100%; padding: 9px; border: none; border-radius: 6px;
+    background: var(--accent); color: #1a1a1a; font-weight: bold; cursor: pointer; font-size: 13px; margin-top: 6px;
+  }
+  #regenBtn { background: #4a4d55; color: var(--text); }
+  #uploadBtn:hover, #exportBtn:hover, #regenBtn:hover { filter: brightness(1.15); }
+  input[type=file] { display: none; }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  .factionRow { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .factionBtn { flex: 1; min-width: 70px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+    background: #16171b; border: 1.5px solid var(--border); border-radius: 8px; padding: 8px 4px; cursor: pointer; color: var(--muted); font-size: 11px; }
+  .factionBtn svg { width: 22px; height: 22px; }
+  .factionBtn.active { border-color: var(--accent); color: var(--accent); background: #201c10; }
+
+  /* -------- 右侧预览区 -------- */
+  #stage { flex: 1; display: flex; align-items: flex-start; justify-content: center; padding: 50px; }
+  #cardShadowWrap { filter: drop-shadow(0 26px 46px rgba(0,0,0,0.65)); }
+
+  /* ================= 卡牌本体：符文石板风格 ================= */
+  #card {
+    width: 480px; height: 700px; position: relative;
+    padding: 26px 24px;
+    background: linear-gradient(155deg, var(--frameA), var(--frameB) 55%, var(--frameA2));
+    font-family: var(--bodyFont);
+    user-select: none;
+    isolation: isolate;
+  }
+  #card * { box-sizing: border-box; }
+
+  /* 石质纹理层（feTurbulence 生成的凹凸颗粒噪点，与主题色相乘） */
+  #stoneTexture { position: absolute; inset: 0; z-index: 0; pointer-events: none; mix-blend-mode: multiply; opacity: 0.55; }
+  #stoneLight { position: absolute; inset: 0; z-index: 0; pointer-events: none; mix-blend-mode: overlay; opacity: 0.35; }
+
+  /* 内凹雕刻边线，模拟石板被凿刻出的双线槽 */
+  #carvedBorder { position: absolute; inset: 12px; z-index: 1; pointer-events: none; border-radius: 6px;
+    border: 2px solid rgba(0,0,0,0.55);
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,0.06), inset 0 2px 10px rgba(0,0,0,0.65), 0 1px 0 rgba(255,255,255,0.08);
+  }
+  #carvedBorder2 { position: absolute; inset: 18px; z-index: 1; pointer-events: none; border-radius: 4px;
+    border: 1px solid rgba(0,0,0,0.4); box-shadow: inset 0 0 4px rgba(0,0,0,0.5);
+  }
+
+  /* 边框纹样已移除，仅保留石质浮雕纹理 */
+
+  #cardInner { position: relative; z-index: 4; height: 100%; display: flex; flex-direction: column; }
+
+  /* 名称栏——凿刻石牌样式 */
+  #titleBar {
+    height: 44px; border-radius: 4px;
+    background: linear-gradient(180deg, var(--bandA), var(--bandB));
+    display: flex; align-items: center; justify-content: space-between; padding: 0 12px;
+    border: 1.5px solid rgba(0,0,0,0.6);
+    box-shadow: inset 0 2px 3px rgba(255,255,255,0.35), inset 0 -3px 6px rgba(0,0,0,0.35), 0 2px 4px rgba(0,0,0,0.5);
+  }
+  #cardName { font-weight: bold; color: #1c1a14; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 68%; font-family: var(--titleFont); font-size: var(--nameSize);
+    text-shadow: 0 1px 0 rgba(255,255,255,0.3); }
+
+  /* 费用：两个纯色圆形符石 */
+  /* 费用：两个纯色圆形符石——加强雕刻浮雕质感 */
+  #manaCost { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+  .manaPip { position: relative; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-weight: 900; color: #2a2510;
+    border: 1.5px solid rgba(0,0,0,0.65);
+    box-shadow:
+      0 3px 5px rgba(0,0,0,0.55),
+      0 1px 0 rgba(255,255,255,0.15),
+      inset 0 3px 3px rgba(255,255,255,0.85),
+      inset 0 -4px 5px rgba(0,0,0,0.4),
+      inset 0 0 0 1px rgba(255,255,255,0.15);
+  }
+  .manaPip::before {
+    content: ''; position: absolute; inset: 2px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.35);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.25);
+    pointer-events: none;
+  }
+  .manaPip span, .manaPip.dropChar {
+    position: relative; z-index: 1;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.6), 0 -1px 1px rgba(0,0,0,0.5);
+  }
+  #manaNumPip { width: 30px; height: 30px; font-size: 15px;
+    background: radial-gradient(circle at 32% 26%, #fffdf4 0%, #efe8ce 30%, #cdc2a0 62%, #9c9070 88%, #7c7256 100%); }
+  #manaDropPip { width: 30px; height: 30px; font-size: 14px;
+    background: radial-gradient(circle at 32% 26%, #e6f6ff 0%, #a9d9f5 28%, #4f9fd6 60%, #1f6b96 88%, #123f57 100%);
+    text-shadow: 0 1px 1px rgba(255,255,255,0.5), 0 -1px 1px rgba(0,0,0,0.5); }
+
+  /* 图片框 */
+  #artBox { margin-top: 8px; height: 246px; border-radius: 3px; border: 1.5px solid rgba(0,0,0,0.6);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 4px 14px rgba(0,0,0,0.55);
+    background: #0e0f12 center/cover no-repeat; display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 13px; overflow: hidden; position: relative; }
+  #artBox img { width: 100%; height: 100%; object-fit: cover; }
+
+  /* 类别栏 */
+  #typeBar { height: 34px; margin-top: 8px; border-radius: 4px;
+    background: linear-gradient(180deg, var(--bandA), var(--bandB));
+    display: flex; align-items: center; justify-content: space-between; padding: 0 10px 0 12px;
+    border: 1.5px solid rgba(0,0,0,0.6);
+    box-shadow: inset 0 2px 3px rgba(255,255,255,0.3), inset 0 -3px 5px rgba(0,0,0,0.3); }
+  #cardType { font-weight: bold; color: #1c1a14; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-family: var(--titleFont); font-size: var(--typeSize); }
+  #factionIcon { width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #fff, #cfd2d8 45%, #7d818a 100%);
+    display: flex; align-items: center; justify-content: center; border: 1px solid rgba(0,0,0,0.55);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+  #factionIcon svg { width: 14px; height: 14px; }
+
+  /* 文本框 */
+  #textBox { margin-top: 8px; flex: 1;
+    background: repeating-linear-gradient(135deg, rgba(0,0,0,0.015) 0 2px, transparent 2px 4px), linear-gradient(160deg, #f5f1e2, #ece5cd);
+    border: 1.5px solid rgba(0,0,0,0.6); box-shadow: inset 0 2px 10px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.3);
+    border-radius: 3px; padding: 12px 14px; height: 178px; position: relative; color: #1c1a14; overflow: hidden;
+    font-family: var(--bodyFont); font-size: var(--bodySize); line-height: 1.55; }
+  #ruleText { white-space: pre-wrap; word-break: break-word; }
+  #flavorText { margin-top: 8px; font-style: italic; color: #4a4636; white-space: pre-wrap; font-size: var(--flavorSize); }
+
+  /* P/T 石徽 */
+  #ptBadge { position: absolute; right: 12px; bottom: 60px;
+    background: linear-gradient(180deg, var(--bandA), var(--bandB));
+    border: 1.5px solid rgba(0,0,0,0.65); border-radius: 5px; padding: 4px 14px; font-weight: bold; color: #1c1a14;
+    font-family: var(--titleFont); font-size: var(--ptSize);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.55), inset 0 2px 3px rgba(255,255,255,0.4), inset 0 -2px 4px rgba(0,0,0,0.25);
+    z-index: 5; }
+
+  /* 底部信息栏 */
+  #bottomBar { margin-top: 8px; height: 26px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 2px; font-size: 10px; color: rgba(255,255,255,0.85); }
+  #setInfo { font-size: 10.5px; color: rgba(255,255,255,0.85); letter-spacing: 0.5px; font-family: "Courier New", monospace; }
+  #brandInfo { font-size: 10.5px; color: rgba(255,255,255,0.85); font-style: italic; letter-spacing: 0.3px; }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <h1>⚔ 万智牌卡片生成器 Pro — 符文石版</h1>
+
+  <div class="group">
+    <h2>基础信息</h2>
+    <label>卡牌名称</label>
+    <input type="text" id="inpName" value="万形归一·硅律">
+    <label>类别行（如：传奇生物 — 变形兽）</label>
+    <input type="text" id="inpType" value="传奇生物 — 变形兽">
+    <label>力量/防御力（留空则不显示）</label>
+    <input type="text" id="inpPT" value="3/3">
+    <label>费用数字（圆圈内数字）</label>
+    <input type="number" id="inpMana" value="3" min="0">
+  </div>
+
+  <div class="group">
+    <h2>规则文本</h2>
+    <label>正文描述（支持换行）</label>
+    <textarea id="inpRule" style="min-height:110px;">化形
+
+每当你施放瞬间或法术咒语时，若该咒语以一个或数个由你操控的其他永久物为目标，则派出一个为其中任一永久物之复制品的衍生物。</textarea>
+    <label>风味文字（斜体，可留空）</label>
+    <textarea id="inpFlavor" style="min-height:40px;">「代码即咒语，逻辑即魔法。」</textarea>
+  </div>
+
+  <div class="group">
+    <h2>阵营图标（类别栏右侧）</h2>
+    <div class="factionRow" id="factionRow"></div>
+  </div>
+
+  <div class="group">
+    <h2>中央插画</h2>
+    <button id="uploadBtn" onclick="document.getElementById('fileInput').click()">📤 上传图片</button>
+    <input type="file" id="fileInput" accept="image/*">
+    <div class="hint">建议使用横版图片，将自动裁剪填充</div>
+    <div class="hint">📐 图片尺寸建议：宽高比约 <b>1.76 : 1</b>（如 1300×740、1760×1000、2100×1194），分辨率不低于 1300×740 以保证清晰度；主体尽量居中偏上，避免因裁剪丢失关键内容</div>
+  </div>
+
+  <div class="group">
+    <h2>字体 &amp; 字号</h2>
+    <label>标题/类别字体</label>
+    <select id="selTitleFont">
+      <option value="'Beleren','Beleren Small Caps','Cinzel',Georgia,serif">Beleren（万智牌官方标题字体）</option>
+      <option value="'STXingkai','华文行楷',serif">华文行楷（书法）</option>
+      <option value="'STLiti','华文隶书',serif">华文隶书</option>
+      <option value="'KaiTi','楷体',serif" selected>楷体</option>
+      <option value="'SimHei','黑体',sans-serif">黑体（粗壮）</option>
+      <option value="'Microsoft YaHei','微软雅黑',sans-serif">微软雅黑</option>
+      <option value="'STSong','SimSun','宋体',serif">宋体</option>
+      <option value="Georgia, 'Times New Roman', serif">Georgia（英文衬线）</option>
+    </select>
+    <label>正文字体</label>
+    <select id="selBodyFont">
+      <option value="'Beleren','Beleren Small Caps','Cinzel',Georgia,serif">Beleren（万智牌官方字体）</option>
+      <option value="'STSong','SimSun','宋体',serif" selected>宋体</option>
+      <option value="'FangSong','仿宋',serif">仿宋</option>
+      <option value="'KaiTi','楷体',serif">楷体</option>
+      <option value="'Microsoft YaHei','微软雅黑',sans-serif">微软雅黑</option>
+      <option value="'SimHei','黑体',sans-serif">黑体</option>
+      <option value="Georgia, serif">Georgia（英文衬线）</option>
+    </select>
+    <div class="hint">Beleren 为万智牌官方字体，非中文系统常见字体，若本机未安装则自动回退为衬线体（不影响中文显示，仅影响英文/数字字形）</div>
+    <div class="sizeRow"><span>名称字号</span><input type="range" id="szName" min="12" max="28" value="19"><span class="val" id="szNameVal">19</span></div>
+    <div class="sizeRow"><span>类别字号</span><input type="range" id="szType" min="10" max="20" value="14"><span class="val" id="szTypeVal">14</span></div>
+    <div class="sizeRow"><span>正文字号</span><input type="range" id="szBody" min="9" max="20" value="13"><span class="val" id="szBodyVal">13</span></div>
+    <div class="sizeRow"><span>风味字号</span><input type="range" id="szFlavor" min="8" max="18" value="12"><span class="val" id="szFlavorVal">12</span></div>
+    <div class="sizeRow"><span>力量/防御字号</span><input type="range" id="szPT" min="10" max="24" value="15"><span class="val" id="szPTVal">15</span></div>
+  </div>
+
+  <div class="group">
+    <h2>颜色风格（符文石染色）</h2>
+    <div class="swatches" id="presetSwatches"></div>
+    <div class="colorRow"><span>石板主色 A</span><input type="color" id="colFrameA" value="#3a3f45"></div>
+    <div class="colorRow"><span>石板主色 B</span><input type="color" id="colFrameB" value="#181a1d"></div>
+    <div class="colorRow"><span>石板辅色</span><input type="color" id="colFrameA2" value="#4a4e52"></div>
+    <div class="colorRow"><span>栏目色 A</span><input type="color" id="colBandA" value="#d8cfa8"></div>
+    <div class="colorRow"><span>栏目色 B</span><input type="color" id="colBandB" value="#a4915a"></div>
+    <button id="regenBtn" onclick="regenStone()">🪨 重新生成石纹肌理</button>
+  </div>
+
+  <div class="group">
+    <h2>底部信息</h2>
+    <label>左下角编号信息（如：001/100 · M · SL）</label>
+    <input type="text" id="inpSetInfo" value="001/100 · M · SL2026">
+  </div>
+
+  <div class="group">
+    <button id="exportBtn" onclick="exportCard()">⬇ 导出为 PNG 图片</button>
+  </div>
+</div>
+
+<div id="stage">
+  <div id="cardShadowWrap">
+    <div id="card">
+      <svg id="stoneTexture" width="100%" height="100%" preserveAspectRatio="none">
+        <filter id="stoneFilter">
+          <feTurbulence id="turb1" type="fractalNoise" baseFrequency="0.9" numOctaves="4" seed="7" stitchTiles="stitch" result="noise"/>
+          <feColorMatrix in="noise" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0.9 0.9 0.9 0 0" result="alphaNoise"/>
+          <feComponentTransfer in="alphaNoise" result="contrast">
+            <feFuncA type="gamma" amplitude="1" exponent="2.2" offset="0"/>
+          </feComponentTransfer>
+          <feFlood flood-color="#000000" result="black"/>
+          <feComposite in="black" in2="contrast" operator="in" result="grain"/>
+        </filter>
+        <rect width="100%" height="100%" filter="url(#stoneFilter)"/>
+      </svg>
+      <svg id="stoneLight" width="100%" height="100%" preserveAspectRatio="none">
+        <filter id="stoneFilter2">
+          <feTurbulence id="turb2" type="fractalNoise" baseFrequency="0.045" numOctaves="3" seed="11" stitchTiles="stitch" result="bump"/>
+          <feDiffuseLighting in="bump" lighting-color="#ffffff" surfaceScale="4" diffuseConstant="1.1" result="light">
+            <feDistantLight azimuth="235" elevation="55"/>
+          </feDiffuseLighting>
+        </filter>
+        <rect width="100%" height="100%" filter="url(#stoneFilter2)"/>
+      </svg>
+
+      <div id="carvedBorder"></div>
+      <div id="carvedBorder2"></div>
+
+      <div id="cardInner">
+        <div id="titleBar">
+          <div id="cardName">万形归一·硅律</div>
+          <div id="manaCost">
+            <div class="manaPip" id="manaNumPip"><span id="manaNum">3</span></div>
+            <div class="manaPip" id="manaDropPip">💧</div>
+          </div>
+        </div>
+        <div id="artBox">点击左侧"上传图片"添加插画</div>
+        <div id="typeBar">
+          <div id="cardType">传奇生物 — 变形兽</div>
+          <div id="factionIcon"></div>
+        </div>
+        <div id="textBox">
+          <div id="ruleText"></div>
+          <div id="flavorText"></div>
+        </div>
+        <div id="bottomBar">
+          <div id="setInfo">001/100 · M · SL2026</div>
+          <div id="brandInfo"><span>@硅律SiliconLawyer</span></div>
+        </div>
+      </div>
+      <div id="ptBadge" style="display:none;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- 颜色预设（符文石染色）---------- */
+const presets = [
+  {name:'寒霜蓝', a:'#d8cfa8', b:'#a4915a', fa:'#354a55', fb:'#141b1e', fa2:'#42606b'},
+  {name:'苍白石', a:'#e6ddc0', b:'#b8a066', fa:'#5c5747', fb:'#211f1a', fa2:'#726c58'},
+  {name:'黑曜岩', a:'#b7b7b9', b:'#6b6b6e', fa:'#1c1c1e', fb:'#050506', fa2:'#2c2c2e'},
+  {name:'赤焰岩', a:'#e7b06a', b:'#a15a26', fa:'#4a1c10', fb:'#180705', fa2:'#5e2a16'},
+  {name:'苔藓绿', a:'#c8d69a', b:'#7d8f4a', fa:'#28331b', fb:'#0d1208', fa2:'#3a4a25'},
+  {name:'黄金符', a:'#f5da8a', b:'#c9982e', fa:'#4a3a10', fb:'#1a1405', fa2:'#5e4a16'},
+  {name:'银灰岩', a:'#dcdfe3', b:'#9ba0a8', fa:'#3a3d42', fb:'#131416', fa2:'#4d5158'},
+];
+const swatchWrap = document.getElementById('presetSwatches');
+presets.forEach(p => {
+  const s = document.createElement('div');
+  s.className = 'swatch'; s.title = p.name;
+  s.style.background = `linear-gradient(135deg, ${p.fa}, ${p.fb})`;
+  s.onclick = () => {
+    el('colFrameA').value = p.fa; el('colFrameB').value = p.fb; el('colFrameA2').value = p.fa2;
+    el('colBandA').value = p.a; el('colBandB').value = p.b;
+    document.querySelectorAll('.swatch').forEach(x => x.classList.remove('active'));
+    s.classList.add('active');
+    updateCard();
+  };
+  swatchWrap.appendChild(s);
+});
+
+/* ---------- 阵营图标 ---------- */
+const factions = [
+  { key:'none', name:'无', svg:'' },
+  { key:'civil', name:'民事', svg:'<path d="M12 2 L12 22 M6 6 L18 6 M4 6 L2 12 Q4 15 6 12 L4 6 M20 6 L18 12 Q20 15 22 12 L20 6 M8 20 L16 20" stroke="#1c1a14" stroke-width="1.6" fill="none" stroke-linecap="round"/>' },
+  { key:'criminal', name:'刑事', svg:'<path d="M4 15 L10 9 M8 17 L16 9 M14 15 L20 21 M13 6 L18 11 M2 21 L7 16" stroke="#1c1a14" stroke-width="1.8" fill="none" stroke-linecap="round"/>' },
+  { key:'admin', name:'行政', svg:'<circle cx="12" cy="10" r="6" stroke="#1c1a14" stroke-width="1.6" fill="none"/><path d="M9 15 L6 22 L12 19 L18 22 L15 15" stroke="#1c1a14" stroke-width="1.6" fill="none" stroke-linejoin="round"/><path d="M9.5 10 L11 11.5 L14.5 8" stroke="#1c1a14" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' },
+  { key:'enforce', name:'执行', svg:'<rect x="4" y="10" width="16" height="10" rx="1.5" stroke="#1c1a14" stroke-width="1.6" fill="none"/><path d="M8 10 V7 a4 4 0 0 1 8 0 v3" stroke="#1c1a14" stroke-width="1.6" fill="none"/><circle cx="12" cy="15" r="1.6" fill="#1c1a14"/>' },
+];
+let currentFaction = 'none';
+const factionRow = document.getElementById('factionRow');
+factions.forEach(f => {
+  const b = document.createElement('div');
+  b.className = 'factionBtn' + (f.key === currentFaction ? ' active' : '');
+  b.innerHTML = `<svg viewBox="0 0 24 24">${f.svg}</svg><span>${f.name}</span>`;
+  b.onclick = () => {
+    currentFaction = f.key;
+    document.querySelectorAll('.factionBtn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    updateCard();
+  };
+  factionRow.appendChild(b);
+});
+
+/* ---------- 石纹肌理随机化（边框图案为固定几何纹样，不含文字）---------- */
+function regenStone() {
+  document.getElementById('turb1').setAttribute('seed', Math.floor(Math.random()*1000));
+  document.getElementById('turb2').setAttribute('seed', Math.floor(Math.random()*1000));
+}
+
+/* ---------- 主逻辑 ---------- */
+const card = document.getElementById('card');
+function el(id) { return document.getElementById(id); }
+
+function bindSize(rangeId, valId, cssVar, unit) {
+  const range = el(rangeId);
+  range.addEventListener('input', () => {
+    el(valId).textContent = range.value;
+    card.style.setProperty(cssVar, range.value + (unit || 'px'));
+  });
+}
+bindSize('szName','szNameVal','--nameSize');
+bindSize('szType','szTypeVal','--typeSize');
+bindSize('szBody','szBodyVal','--bodySize');
+bindSize('szFlavor','szFlavorVal','--flavorSize');
+bindSize('szPT','szPTVal','--ptSize');
+
+function updateCard() {
+  el('cardName').textContent = el('inpName').value || '无名卡牌';
+  el('manaNum').textContent = el('inpMana').value;
+  el('cardType').textContent = el('inpType').value;
+  el('ruleText').textContent = el('inpRule').value;
+  el('flavorText').textContent = el('inpFlavor').value;
+  el('setInfo').textContent = el('inpSetInfo').value;
+
+  const pt = el('inpPT').value.trim();
+  const badge = el('ptBadge');
+  if (pt) { badge.style.display = 'block'; badge.textContent = pt; }
+  else { badge.style.display = 'none'; }
+
+  card.style.setProperty('--frameA', el('colFrameA').value);
+  card.style.setProperty('--frameB', el('colFrameB').value);
+  card.style.setProperty('--frameA2', el('colFrameA2').value);
+  card.style.setProperty('--bandA', el('colBandA').value);
+  card.style.setProperty('--bandB', el('colBandB').value);
+  card.style.setProperty('--titleFont', el('selTitleFont').value);
+  card.style.setProperty('--bodyFont', el('selBodyFont').value);
+
+  const fIcon = document.getElementById('factionIcon');
+  const f = factions.find(x => x.key === currentFaction);
+  if (!f || f.key === 'none') { fIcon.style.display = 'none'; }
+  else { fIcon.style.display = 'flex'; fIcon.innerHTML = `<svg viewBox="0 0 24 24">${f.svg}</svg>`; }
+}
+
+['inpName','inpMana','inpType','inpPT','inpRule','inpFlavor','inpSetInfo',
+ 'colFrameA','colFrameB','colFrameA2','colBandA','colBandB','selTitleFont','selBodyFont'].forEach(id => {
+  el(id).addEventListener('input', updateCard);
+  el(id).addEventListener('change', updateCard);
+});
+
+document.getElementById('fileInput').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    const artBox = document.getElementById('artBox');
+    artBox.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = ev.target.result;
+    artBox.appendChild(img);
+  };
+  reader.readAsDataURL(file);
+});
+
+function exportCard() {
+  const btn = document.getElementById('exportBtn');
+  btn.textContent = '生成中...';
+  html2canvas(document.getElementById('cardShadowWrap'), {scale: 3, useCORS: true, backgroundColor: null}).then(canvas => {
+    const link = document.createElement('a');
+    const name = (el('inpName').value || 'card').replace(/[^\w\u4e00-\u9fa5]/g, '_');
+    link.download = `${name}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    btn.textContent = '⬇ 导出为 PNG 图片';
+  });
+}
+
+regenStone();
+updateCard();
+</script>
+
+</body>
+</html>
